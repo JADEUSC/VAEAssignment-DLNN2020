@@ -182,7 +182,20 @@ def forward(input):
 def decode(z):
 
     # basically the decoding part in the forward pass: maaping z to p
+    
+    dec = np.dot(Wd, z) + Bd
+    dec = relu(dec)
+    output = np.dot(Wo, dec) + Bo
+    if loss_function == 'bce':
+        p = sigmoid(output)
 
+    elif loss_function == 'mse':
+        p = output
+
+    return p
+    
+    
+    
     # o = W_d \times z + B_d
     o = np.dot(Wd, z) + Bd
 
