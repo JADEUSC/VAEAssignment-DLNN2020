@@ -259,7 +259,49 @@ def backward(input, activations, scale=True, alpha=1.0):
     # backprop from (6) through ReLU
     dl_ddec = np.multiply(drelu(dec), dl_ddec)
 
+    # backprop from (5) through fully-connected
+    dl_dz = np.dot(Wd.T, dl_ddec)
+    dWd += np.dot(dl_ddec, z.T)
+    if batch_size == 1:
+        dBd += dl_ddec
+    else:
+        dBd += np.sum(dl_ddec, axis=-1, keepdims=True)
+
+    # backprop from (4) through ReLU
+    dl_dz = np.multiply(drelu(z), dl_dz)
+
     # Perform your BACKWARD PASS (similar to the auto-encoder code)
+    
+    dl_mean_1 = np.multiply(1, dl_dz)
+    dl_mean_2 = mean
+    
+    dl_mean = dl_mean_1 + dl_mean_2
+    
+    dl_logvar_1 = np.multiply(eps * np.exp(logvar), dl_dz)
+    dl_logvar_2 = 0.5 * (np.exp(logvar) - 1)
+    dl_logvar = dl_logvar_1 + dl_logvar_2
+    
+    if batch_size == 1:
+        dBm += dl_mean
+        dBv += dl_logvar
+    else:
+        dBm += np.sum(dl_mean, axis=-1, keepdims=True)
+        dBv += np.sum(dl_logvar, axis=-1, keepdims=True)
+        
+    dWm += np.dot(dl_mean, h.T)
+    dWv += np.dot(dl_logvar, h.T)
+    
+    dl_dh = np.dot(Wm.T, dl_mean) + np.dot(Wv.T, dl_logvar)
+    
+    dl_dh = np.multiply(drelu(h), dl_dh)
+    
+    # backprop from (1) through fully connected
+    dl_dinput = np.dot(Wi.T, dl_dh)
+    dWi += np.dot(dl_dh, input.T)
+    if batch_size == 1:
+        dBi += dl_dh
+    else:
+        dBi += np.sum(dl_dh, axis=-1, keepdims=True)
 
     # 1st Note:
     # When performing the BW Pass for mean and logvar, note that they should have 2 different terms
