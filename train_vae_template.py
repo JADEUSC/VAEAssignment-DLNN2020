@@ -5,6 +5,7 @@ import math
 import sys
 import pickle
 import scipy.io
+from sys import exit
 
 
 debug = False
@@ -119,51 +120,63 @@ def forward(input):
         input = np.expand_dims(input, axis=1)
 
     # (1) linear
-    # H = W_i \times input + Bi
+    H = np.dot(Wi, input) + Bi
 
     # (2) ReLU
-    # H = ReLU(H)
+    H = relu(H)
 
     # (3) h > mu
     # Estimate the means of the latent distributions
-    # mean = Wm \times H + Bm
+    mean = np.dot(Wm, H) + Bm
 
     # (4) h > log var
     # Estimate the (diagonal) variances of the latent distributions
-    # logvar = Wv \times H + Bv
+    logvar = np.dot(Wv, H) + Bv
 
     # (5) sample the random variable z from means and variances (refer to the "reparameterization trick" to do this)
+    eps = np.random.normal(0, np.identity(batch_size)).diagonal()
+    z = mean + eps * np.exp(logvar)
 
     # (6) decode z
     # D = Wd \times z + Bd
+    D = np.dot(Wd, z) + Bd
 
     # (7) relu
     # D = ReLU(D)
+    D = relu(D)
 
     # (8) dec to output
     # output = Wo \times D + Bo
+    output = np.dot(Wo, D) + Bo
 
     # # (9) dec to p(x)
     # and (10) reconstruction loss function (same as the
     if loss_function == 'bce':
 
         # BCE Loss
+        p = sigmoid(output)
+        rec_loss = -np.sum(np.multiply(input, np.log(p)) + np.multiply(1 - input, np.log(1 - p)))
 
     elif loss_function == 'mse':
 
         # MSE Loss
+        p = output
+        rec_loss = np.sum(0.5 * (p - input) ** 2)
 
     # variational loss with KL Divergence between P(z|x) and U(0, 1)
 
     #kl_div_loss = - 0.5 * (1 + logvar - mean^2 - e^logvar)
+    kl_div_loss =np.sum( - 0.5 * (1 + logvar - mean**2 - np.exp(logvar)))
+    
 
     # your loss is the combination of
-    #loss = rec_loss + kl_div_loss
+    loss = rec_loss + kl_div_loss
 
     # Store the activations for the backward pass
     # activations = ( ... )
+    activations = (eps, H, mean, logvar, z, D, output, p, rec_loss, kl_div_loss)
 
-    return loss, kl_div_loss, activations
+    return loss, activations
 
 
 def decode(z):
@@ -171,8 +184,19 @@ def decode(z):
     # basically the decoding part in the forward pass: maaping z to p
 
     # o = W_d \times z + B_d
+    o = np.dot(Wd, z) + Bd
 
     # p = sigmoid(o) if bce or o if mse
+    
+    if loss_function == 'bce':
+
+        # BCE Loss
+        p = sigmoid(o)
+
+    elif loss_function == 'mse':
+
+        # MSE Loss
+        p = o
 
     return p
 
@@ -193,7 +217,34 @@ def backward(input, activations, scale=True, alpha=1.0):
     batch_size = input.shape[-1]
     scaler = batch_size if scale else 1
 
-    eps, h, mean, logvar, z, dec, output, p, _, _ = activations
+    eps, h, mean, logvar, z, dec, output, p, _, kl_div_loss = activations
+    
+    if loss_function == 'mse':
+        dl_dp = p - input
+
+        # I found that normalizing the loss and gradient by batch size makes learning more stable
+        if scale:
+            dl_dp = dl_dp / batch_size
+        dl_doutput = dl_dp
+
+    elif loss_function == 'bce':
+        dl_dp = -1 * (input / p - (1 - input) / (1 - p))
+        dl_dp = dl_dp
+        if scale:
+            dl_dp = dl_dp / batch_size
+        dl_doutput = np.multiply(dl_dp, dsigmoid(p))
+
+    # backprop from (7) through fully-connected
+    dl_ddec = np.dot(Wo.T, dl_doutput)
+    dWo += np.dot(dl_doutput, dec.T)
+    
+    if batch_size == 1:
+        dBo += dl_doutput
+    else:
+        dBo += np.sum(dl_doutput, axis=-1, keepdims=True)
+
+    # backprop from (6) through ReLU
+    dl_ddec = np.multiply(drelu(dec), dl_ddec)
 
     # Perform your BACKWARD PASS (similar to the auto-encoder code)
 
@@ -268,7 +319,7 @@ def train():
             x_i = get_minibatch(batch_size, i, rand_indices)
             bsz = x_i.shape[-1]
 
-            loss, acts = forward(x_i, alpha=alpha)
+            loss, acts = forward(x_i)
             _, _, _, _, z, _, _, _, rec_loss, kl_loss = acts
             # lol I computed kl_div again here
 

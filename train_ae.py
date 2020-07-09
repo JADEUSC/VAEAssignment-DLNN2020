@@ -4,7 +4,7 @@ import matplotlib.gridspec as gridspec
 import math
 import sys
 import pickle
-
+from sys import exit
 import scipy.io
 
 debug = False
@@ -139,7 +139,7 @@ def forward(input):
         print("output shape: ", p.shape)
 
     activations = (h, z, dec, output, p)
-
+    
     return loss, activations
 
 
