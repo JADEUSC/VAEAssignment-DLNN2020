@@ -132,14 +132,14 @@ def forward(input):
     # (4) h > log var
     # Estimate the (diagonal) variances of the latent distributions
     logvar = np.dot(Wv, H) + Bv
-
     # (5) sample the random variable z from means and variances (refer to the "reparameterization trick" to do this)
-    eps = np.random.normal(0, np.identity(batch_size)).diagonal()
+    eps = sample_unit_gaussian((latent_size, batch_size))
     z = mean + eps * np.exp(logvar)
 
     # (6) decode z
     # D = Wd \times z + Bd
     D = np.dot(Wd, z) + Bd
+
 
     # (7) relu
     # D = ReLU(D)
@@ -167,7 +167,6 @@ def forward(input):
 
     #kl_div_loss = - 0.5 * (1 + logvar - mean^2 - e^logvar)
     kl_div_loss =np.sum( - 0.5 * (1 + logvar - mean**2 - np.exp(logvar)))
-    
 
     # your loss is the combination of
     loss = rec_loss + kl_div_loss
@@ -176,7 +175,7 @@ def forward(input):
     # activations = ( ... )
     activations = (eps, H, mean, logvar, z, D, output, p, rec_loss, kl_div_loss)
 
-    return loss, activations
+    return loss, kl_div_loss, activations
 
 
 def decode(z):
@@ -374,7 +373,7 @@ def train():
             x_i = get_minibatch(batch_size, i, rand_indices)
             bsz = x_i.shape[-1]
 
-            loss, acts = forward(x_i)
+            loss, _, acts = forward(x_i)
             _, _, _, _, z, _, _, _, rec_loss, kl_loss = acts
             # lol I computed kl_div again here
 
@@ -431,7 +430,7 @@ def grad_check():
 
     actual_bsz = x.shape[-1]  # because x can be the last batch in the dataset which has bsz < 8
 
-    loss, acts = forward(x)
+    loss, _, acts = forward(x)
 
     gradients = backward(x, acts, scale=False)
 
@@ -446,15 +445,16 @@ def grad_check():
 
         print("Checking grads for weights %s ..." % name)
         n_warnings = 0
+        correct = 0
         for i in range(weight.size):
 
             w = weight.flat[i]
 
             weight.flat[i] = w + delta
-            loss_positive, _ = forward(x)
+            loss_positive, _, _ = forward(x)
 
             weight.flat[i] = w - delta
-            loss_negative, _ = forward(x)
+            loss_negative, _, _ = forward(x)
 
             weight.flat[i] = w  # reset old value for this parameter
 
@@ -466,7 +466,12 @@ def grad_check():
             if rel_error > 0.001:
                 n_warnings += 1
                 # print('WARNING %f, %f => %e ' % (grad_numerical, grad_analytic, rel_error))
+            
+            else:
+                correct += 1
         print("%d gradient mismatch warnings found. " % n_warnings)
+        # this is extremely frustrating
+        print("%d gradients correct " % correct)
 
     return
 
