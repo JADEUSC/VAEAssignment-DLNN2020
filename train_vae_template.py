@@ -25,7 +25,7 @@ hidden_size = 128
 latent_size = 16
 std = 0.02
 learning_rate = 0.02
-loss_function = 'bce'  # mse or bce
+loss_function = 'mse'  # mse or bce
 beta1=0.9
 beta2=0.999
 
@@ -111,7 +111,7 @@ Wo = np.random.uniform(-std, std, size=(input_size, hidden_size))
 Bo = np.random.uniform(-std, std, size=(input_size, 1))
 
 
-def forward(input):
+def forward(input, eps=None):
 
     # YOUR FORWARD PASS FROM HERE
     batch_size = input.shape[-1]
@@ -133,7 +133,9 @@ def forward(input):
     # Estimate the (diagonal) variances of the latent distributions
     logvar = np.dot(Wv, H) + Bv
     # (5) sample the random variable z from means and variances (refer to the "reparameterization trick" to do this)
-    eps = sample_unit_gaussian((latent_size, batch_size))
+    if eps is None:
+        eps = sample_unit_gaussian((latent_size, batch_size))
+
     z = mean + eps * np.exp(logvar)
 
     # (6) decode z
@@ -166,7 +168,7 @@ def forward(input):
     # variational loss with KL Divergence between P(z|x) and U(0, 1)
 
     #kl_div_loss = - 0.5 * (1 + logvar - mean^2 - e^logvar)
-    kl_div_loss =np.sum( - 0.5 * (1 + logvar - mean**2 - np.exp(logvar)))
+    kl_div_loss = np.sum( - 0.5 * (1 + logvar - mean**2 - np.exp(logvar)))
 
     # your loss is the combination of
     loss = rec_loss + kl_div_loss
@@ -193,25 +195,6 @@ def decode(z):
 
     return p
     
-    
-    
-    # o = W_d \times z + B_d
-    o = np.dot(Wd, z) + Bd
-
-    # p = sigmoid(o) if bce or o if mse
-    
-    if loss_function == 'bce':
-
-        # BCE Loss
-        p = sigmoid(o)
-
-    elif loss_function == 'mse':
-
-        # MSE Loss
-        p = o
-
-    return p
-
 
 def backward(input, activations, scale=True, alpha=1.0):
     # allocating the gradients for the weight matrice
@@ -230,7 +213,7 @@ def backward(input, activations, scale=True, alpha=1.0):
     scaler = batch_size if scale else 1
 
     eps, h, mean, logvar, z, dec, output, p, _, kl_div_loss = activations
-    
+   
     if loss_function == 'mse':
         dl_dp = p - input
 
@@ -267,7 +250,7 @@ def backward(input, activations, scale=True, alpha=1.0):
         dBd += np.sum(dl_ddec, axis=-1, keepdims=True)
 
     # backprop from (4) through ReLU
-    dl_dz = np.multiply(drelu(z), dl_dz)
+    #dl_dz = np.multiply(drelu(z), dl_dz)
 
     # Perform your BACKWARD PASS (similar to the auto-encoder code)
     
@@ -449,12 +432,19 @@ def grad_check():
         for i in range(weight.size):
 
             w = weight.flat[i]
+            
+            # it is necessary to provide the epsilons of the analytical forward pass to the numerical
+            # forward pass, otherwise the gradcheck never passes because the forward passes are different, due to
+            # the different epsilons
+            
+            # Full disclosure: This fix was taken from the group https://github.com/chaosbambi/VAEAssignment-DLNN2020
+            # I went mad trying to debug my code
 
             weight.flat[i] = w + delta
-            loss_positive, _, _ = forward(x)
+            loss_positive, _, _ = forward(x, acts[0])
 
             weight.flat[i] = w - delta
-            loss_negative, _, _ = forward(x)
+            loss_negative, _, _ = forward(x, acts[0])
 
             weight.flat[i] = w  # reset old value for this parameter
 
